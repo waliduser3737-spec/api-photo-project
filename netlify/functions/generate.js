@@ -1,14 +1,8 @@
 export async function handler(event, context) {
   try {
-    // Parse request body
     const body = JSON.parse(event.body);
     
-    console.log('Received generation request:', {
-      hasApiKey: !!body.apiKey,
-      hasPrompt: !!body.prompt,
-      hasProduct: !!body.product,
-      hasTemplate: !!body.template
-    });
+    console.log('Received generation request');
 
     // Validate required fields
     if (!body.apiKey || !body.prompt || !body.product || !body.template) {
@@ -20,50 +14,47 @@ export async function handler(event, context) {
       };
     }
 
-    // Create prediction
-    console.log('Calling Replicate API to create prediction...');
-    const createResponse = await fetch(
+    // Using a simpler, more reliable approach: stability-ai/sdxl with img2img
+    console.log('Calling Replicate API...');
+    const response = await fetch(
       'https://api.replicate.com/v1/predictions',
       {
         method: 'POST',
         headers: {
           'Authorization': `Token ${body.apiKey}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'wait'
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          version: '2fec59ca1be9f79ea9240fde80cb6e3c34e8e6c27d0c3be1d09e1a24f0b9e07b',
+          version: '39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b',
           input: {
             prompt: body.prompt,
-            image: body.product,
-            ip_adapter_image: body.template,
-            ip_adapter_scale: parseFloat(body.strength) || 0.5,
+            image: body.template,
+            strength: parseFloat(body.strength) || 0.5,
             num_outputs: parseInt(body.outputs) || 1,
             seed: body.seed ? parseInt(body.seed) : undefined,
-            guidance_scale: 7.5,
-            num_inference_steps: 30
+            negative_prompt: 'low quality, blurry, distorted, watermark',
+            num_inference_steps: 30,
+            guidance_scale: 7.5
           }
         })
       }
     );
 
-    if (!createResponse.ok) {
-      const errorText = await createResponse.text();
-      console.error('Replicate API error:', errorText);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('API error:', errorText);
       return {
-        statusCode: createResponse.status,
-        body: JSON.stringify({ 
-          error: `Replicate API error: ${errorText}` 
-        })
+        statusCode: response.status,
+        body: JSON.stringify({ error: `API error: ${errorText}` })
       };
     }
 
-    let prediction = await createResponse.json();
-    console.log('Initial prediction:', prediction.id, prediction.status);
+    let prediction = await response.json();
+    console.log('Prediction created:', prediction.id);
 
     // Poll for completion
     let attempts = 0;
-    const maxAttempts = 60; // 90 seconds max (60 * 1.5s)
+    const maxAttempts = 60;
 
     while (
       prediction.status !== 'succeeded' &&
@@ -73,31 +64,25 @@ export async function handler(event, context) {
     ) {
       await new Promise(resolve => setTimeout(resolve, 1500));
       
-      console.log(`Polling attempt ${attempts + 1}/${maxAttempts}...`);
-      
       const pollResponse = await fetch(
         `https://api.replicate.com/v1/predictions/${prediction.id}`,
         {
           headers: { 
-            'Authorization': `Token ${body.apiKey}`,
-            'Content-Type': 'application/json'
+            'Authorization': `Token ${body.apiKey}`
           }
         }
       );
 
       if (!pollResponse.ok) {
-        console.error('Polling error:', await pollResponse.text());
+        console.error('Poll error');
         break;
       }
 
       prediction = await pollResponse.json();
-      console.log('Prediction status:', prediction.status);
       attempts++;
     }
 
-    // Check final status
     if (prediction.status === 'failed') {
-      console.error('Generation failed:', prediction.error);
       return {
         statusCode: 500,
         body: JSON.stringify({ 
@@ -106,41 +91,24 @@ export async function handler(event, context) {
       };
     }
 
-    if (prediction.status === 'canceled') {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: 'Generation was canceled' })
-      };
-    }
-
     if (attempts >= maxAttempts) {
       return {
         statusCode: 408,
-        body: JSON.stringify({ 
-          error: 'Generation timeout - please try again' 
-        })
+        body: JSON.stringify({ error: 'Timeout' })
       };
     }
 
-    // Return successful result
-    console.log('Generation succeeded:', prediction.output);
     return {
       statusCode: 200,
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ 
-        images: prediction.output 
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ images: prediction.output })
     };
 
   } catch (error) {
-    console.error('Function error:', error);
+    console.error('Error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ 
-        error: error.message || 'Internal server error' 
-      })
+      body: JSON.stringify({ error: error.message })
     };
   }
 }
