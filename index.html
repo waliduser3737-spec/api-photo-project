@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AI Ad Generator — Replicate (Arabic)</title>
+<title>AI Ad Generator — Hugging Face (Arabic)</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   body { font-family:'Cairo', system-ui; background:#0f1220; color:#fff; padding:20px; }
@@ -16,12 +16,13 @@
   button { background:#5b6cff; color:#fff; font-weight:800; cursor:pointer; }
   button.secondary { background:#2b2f6a; }
   button:disabled { opacity:.6; cursor:not-allowed; }
-  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .row { display:grid; grid-template-columns:1fr; gap:12px; }
   .preview img, .out img { width:100%; border-radius:16px; margin-top:10px; cursor:pointer; }
   .range { display:flex; align-items:center; gap:10px; }
   .range span { opacity:.85; min-width:48px; text-align:center; }
-  .note { font-size:.85rem; opacity:.8; margin-top:12px; }
+  .note { font-size:.85rem; opacity:.8; margin-top:12px; background:#0f1330; padding:10px; border-radius:8px; }
   .actions { display:flex; gap:10px; margin-top:14px; }
+  .error-box { background:#ff4d4d22; border:1px solid #ff4d4d; color:#ff4d4d; padding:10px; border-radius:8px; margin-top:10px; display:none; }
 </style>
 </head>
 <body>
@@ -35,41 +36,30 @@
 </div>
 
 <div class="card" id="mainCard" style="display:none;">
-  <h1>مولّد إعلانات ذكي (Replicate)</h1>
-  <p>ارفع <b>تصميمًا مرجعيًا</b> + <b>صورة المنتج</b>. سيتم إنشاء إعلان بنفس الأسلوب والتنسيق مع دعم كامل للعربية.</p>
+  <h1>مولّد إعلانات ذكي (Hugging Face)</h1>
+  <p>ارفع <b>تصميمًا مرجعيًا</b>. سيتم تحسينه وإعادة توليده باستخدام نموذج Stable Diffusion XL Refiner.</p>
 
-  <label>Replicate API Token</label>
-  <input id="apiKey" type="password" placeholder="r8_..." />
+  <label>Hugging Face API Token</label>
+  <input id="apiKey" type="password" placeholder="hf_..." />
+  <div class="note">🔑 احصل على مفتاح من <a href="https://huggingface.co/settings/tokens" target="_blank" style="color:#5b6cff;">huggingface.co/settings/tokens</a> (مجاني)</div>
 
   <div class="row">
     <div>
-      <label>الصورة المرجعية (التصميم)</label>
+      <label>الصورة المرجعية (التصميم الأصلي)</label>
       <input id="template" type="file" accept="image/*" />
       <div class="preview" id="prevTemplate"></div>
     </div>
-    <div>
-      <label>صورة المنتج</label>
-      <input id="product" type="file" accept="image/*" />
-      <div class="preview" id="prevProduct"></div>
-    </div>
   </div>
 
-  <label>قوة مطابقة الأسلوب</label>
+  <label>قوة التغيير (Strength)</label>
   <div class="range">
-    <input id="strength" type="range" min="0" max="1" step="0.05" value="0.7" />
-    <span id="sval">0.70</span>
+    <input id="strength" type="range" min="0.1" max="1" step="0.05" value="0.5" />
+    <span id="sval">0.50</span>
   </div>
-
-  <label>عدد النتائج</label>
-  <select id="outputs">
-    <option value="1">1</option>
-    <option value="2">2</option>
-    <option value="3">3</option>
-    <option value="4">4</option>
-  </select>
+  <div class="note">القيم الأقل = تغيير طفيف | القيم الأعلى = تغيير جذري (القيمة الموصى بها: 0.5)</div>
 
   <label>Seed (لإعادة نفس النتيجة – اختياري)</label>
-  <input id="seed" type="number" placeholder="اتركه فارغًا للعشوائية" />
+  <input id="seed" type="number" placeholder="مثال: 42 (اتركه فارغًا للعشوائية)" />
 
   <label>نمط الإعلان (جاهز للعربية)</label>
   <select id="preset">
@@ -81,24 +71,28 @@
 
   <label>النص التوجيهي (Prompt)</label>
   <textarea id="prompt" rows="4"></textarea>
+  <div class="note">💡 اكتب وصفاً تفصيلياً بالعربية أو الإنجليزية للنتيجة المطلوبة</div>
 
   <button id="run">إنشاء الإعلان</button>
+  
+  <div class="error-box" id="errorBox"></div>
 
   <div class="out" id="output"></div>
 
-  <div class="note">🔑 كل مستخدم يستعمل مفتاحه الخاص.</div>
+  <div class="note" style="margin-top:20px;">
+    ⚠️ <b>ملاحظة مهمة:</b> النموذج قد يحتاج إلى 10-30 ثانية للتحميل في أول مرة استخدام (عندما يكون غير نشط). إذا ظهر خطأ "Model is loading"، أعد المحاولة بعد ثوانٍ.
+  </div>
   <div class="actions">
     <button id="editText" class="secondary" disabled>🖼️ تعديل النص على الصورة</button>
-    <span id="credits" style="opacity:.85">📊 Credits: —</span>
   </div>
 </div>
 
 <script>
 const presets = {
-  stationery: 'أنشئ إعلانًا عربيًا احترافيًا لمنتج قرطاسية. استخدم التصميم المرجعي كأساس للتنسيق والألوان.',
-  electronics: 'أنشئ إعلانًا عربيًا عصريًا لمنتج إلكتروني. أسلوب نظيف، تباين قوي، إبراز الميزات.',
-  cosmetics: 'أنشئ إعلانًا عربيًا أنيقًا لمنتج تجميلي. ألوان ناعمة، مظهر فاخر.',
-  general: 'أنشئ إعلانًا عربيًا احترافيًا باستخدام التصميم المرجعي كنمط عام.'
+  stationery: 'Professional Arabic stationery advertisement, clean design, high quality, product photography style, modern layout, text space available',
+  electronics: 'Modern Arabic electronics advertisement, sleek design, high tech, professional lighting, clean background, premium feel',
+  cosmetics: 'Elegant Arabic cosmetics advertisement, soft lighting, luxury style, beautiful composition, high end product photography',
+  general: 'Professional Arabic advertisement, high quality, clean composition, suitable for marketing, modern design'
 };
 
 const $ = (id)=>document.getElementById(id);
@@ -111,7 +105,6 @@ function previewFile(input, el){
   }
 }
 previewFile($('template'), $('prevTemplate'));
-previewFile($('product'), $('prevProduct'));
 
 $('strength').oninput = ()=> $('sval').textContent = Number($('strength').value).toFixed(2);
 $('preset').onchange = ()=> $('prompt').value = presets[$('preset').value];
@@ -120,41 +113,31 @@ $('prompt').value = presets.stationery;
 const historyImages = [];
 
 // LOGIN SYSTEM
-console.log('Setting up login button...');
 $('loginBtn').onclick = async ()=>{
-  console.log('Login button clicked!');
   const u = $('username').value.trim();
   const p = $('password').value.trim();
-  console.log('Username:', u);
   
   if(!u || !p){ 
     $('loginMsg').textContent='الرجاء إدخال المستخدم وكلمة المرور'; 
-    console.log('Missing username or password');
     return; 
   }
   
   try{
-    console.log('Sending login request...');
     const res = await fetch('/.netlify/functions/login', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({username:u,password:p})
     });
     
-    console.log('Response status:', res.status);
     const data = await res.json();
-    console.log('Response data:', data);
     
     if(data.success){
-      console.log('Login successful!');
       $('loginCard').style.display='none';
       $('mainCard').style.display='block';
     }else{
-      console.log('Login failed:', data.message);
       $('loginMsg').textContent = data.message || 'اسم المستخدم أو كلمة المرور غير صحيحة';
     }
   }catch(e){ 
-    console.error('Login error:', e);
     $('loginMsg').textContent='خطأ في الاتصال: ' + e.message; 
   }
 }
@@ -172,23 +155,32 @@ const toBase64 = (file)=> new Promise((res,rej)=>{
   r.readAsDataURL(file);
 });
 
+// SHOW ERROR
+function showError(msg) {
+  const box = $('errorBox');
+  box.textContent = msg;
+  box.style.display = 'block';
+  setTimeout(() => { box.style.display = 'none'; }, 8000);
+}
+
 // GENERATE BUTTON
 $('run').onclick = async ()=>{
-  if(!$('apiKey').value || !$('template').files[0] || !$('product').files[0]){
-    alert('يرجى إدخال الـ API والصور');
+  if(!$('apiKey').value || !$('template').files[0]){
+    alert('يرجى إدخال الـ API Token واختيار الصورة المرجعية');
     return;
   }
-  $('run').disabled=true; $('run').textContent='جارٍ الإنشاء…';
+  
+  $('run').disabled=true; 
+  $('run').textContent='جارٍ الإنشاء… (قد يستغرق 30 ثانية في أول استخدام)';
   $('output').innerHTML='';
+  $('errorBox').style.display = 'none';
 
   const body = {
     apiKey: $('apiKey').value.trim(),
     prompt: $('prompt').value,
     strength: Number($('strength').value),
-    outputs: Number($('outputs').value),
-    seed: $('seed').value? Number($('seed').value):null,
-    template: await toBase64($('template').files[0]),
-    product: await toBase64($('product').files[0])
+    seed: $('seed').value ? Number($('seed').value) : null,
+    template: await toBase64($('template').files[0])
   };
 
   try{
@@ -197,28 +189,68 @@ $('run').onclick = async ()=>{
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify(body)
     });
+    
     const data = await res.json();
-    if(!data.images) throw new Error('فشل التوليد');
+    
+    // Handle specific Hugging Face errors
+    if(res.status === 503 && data.error && data.error.includes('loading')) {
+      showError('النموذج يحمل حالياً. انتظر 10-20 ثانية ثم أعد المحاولة.');
+      throw new Error('Model loading');
+    }
+    
+    if(!res.ok) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+    
+    if(!data.images || !data.images[0]) throw new Error('لم يتم إرجاع صورة');
 
     data.images.forEach(url=>{
       const wrapper=document.createElement('div');
-      const img=document.createElement('img'); img.src=url;
+      wrapper.style.marginTop = '20px';
+      
+      const img=document.createElement('img'); 
+      img.src=url;
       img.onclick=()=>openEditor(url);
 
-      const btn=document.createElement('button'); btn.textContent='⬇️ تحميل الصورة'; btn.className='secondary';
-      btn.onclick=()=>{ const a=document.createElement('a'); a.href=url; a.download='ad.png'; a.click(); };
+      const btn=document.createElement('button'); 
+      btn.textContent='⬇️ تحميل الصورة'; 
+      btn.className='secondary';
+      btn.onclick=()=>{ 
+        const a=document.createElement('a'); 
+        a.href=url; 
+        a.download='ad-generated.png'; 
+        a.click(); 
+      };
+      
+      const editBtn = document.createElement('button');
+      editBtn.textContent = '✏️ تعديل النص';
+      editBtn.className = 'secondary';
+      editBtn.style.marginRight = '10px';
+      editBtn.onclick = () => openEditor(url);
 
       wrapper.appendChild(img);
-      wrapper.appendChild(btn);
+      const btnContainer = document.createElement('div');
+      btnContainer.style.marginTop = '10px';
+      btnContainer.appendChild(editBtn);
+      btnContainer.appendChild(btn);
+      wrapper.appendChild(btnContainer);
+      
       $('output').appendChild(wrapper);
 
       historyImages.unshift(url);
       if(historyImages.length>10) historyImages.pop();
     });
 
-    if(data.usage) $('credits').textContent=`📊 Credits: ${data.usage.remaining}`;
-  }catch(e){ alert(e.message); }
-  finally{ $('run').disabled=false; $('run').textContent='إنشاء الإعلان'; }
+  }catch(e){ 
+    console.error(e);
+    if(!e.message.includes('Model loading')) {
+      showError('خطأ: ' + e.message); 
+    }
+  }
+  finally{ 
+    $('run').disabled=false; 
+    $('run').textContent='إنشاء الإعلان'; 
+  }
 };
 </script>
 </body>
