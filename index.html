@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Ad Generator — Replicate (Arabic)</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  body { font-family:'Cairo', system-ui; background:#0f1220; color:#fff; padding:20px; }
+  .card { max-width:820px; margin:auto; background:#151936; border-radius:18px; padding:22px; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+  h1 { font-size:1.4rem; margin-bottom:8px; }
+  p { color:#cbd0ff; font-size:.95rem; }
+  label { display:block; margin-top:14px; font-weight:700; }
+  input, textarea, button, select { width:100%; margin-top:8px; padding:12px; border-radius:12px; border:none; font-family:'Cairo'; }
+  input, textarea, select { background:#0f1330; color:#fff; }
+  button { background:#5b6cff; color:#fff; font-weight:800; cursor:pointer; }
+  button.secondary { background:#2b2f6a; }
+  button:disabled { opacity:.6; cursor:not-allowed; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .preview img, .out img { width:100%; border-radius:16px; margin-top:10px; cursor:pointer; }
+  .range { display:flex; align-items:center; gap:10px; }
+  .range span { opacity:.85; min-width:48px; text-align:center; }
+  .note { font-size:.85rem; opacity:.8; margin-top:12px; }
+  .actions { display:flex; gap:10px; margin-top:14px; }
+</style>
+</head>
+<body>
+
+<div class="card" id="loginCard">
+  <h1>تسجيل الدخول 🔒</h1>
+  <label>Username</label><input id="username" type="text" />
+  <label>Password</label><input id="password" type="password" />
+  <button id="loginBtn">دخول</button>
+  <p id="loginMsg" style="color:#ff4d4d; opacity:.8; margin-top:8px;"></p>
+</div>
+
+<div class="card" id="mainCard" style="display:none;">
+  <h1>مولّد إعلانات ذكي (Replicate)</h1>
+  <p>ارفع <b>تصميمًا مرجعيًا</b> + <b>صورة المنتج</b>. سيتم إنشاء إعلان بنفس الأسلوب والتنسيق مع دعم كامل للعربية.</p>
+
+  <label>Replicate API Token</label>
+  <input id="apiKey" type="password" placeholder="r8_..." />
+
+  <div class="row">
+    <div>
+      <label>الصورة المرجعية (التصميم)</label>
+      <input id="template" type="file" accept="image/*" />
+      <div class="preview" id="prevTemplate"></div>
+    </div>
+    <div>
+      <label>صورة المنتج</label>
+      <input id="product" type="file" accept="image/*" />
+      <div class="preview" id="prevProduct"></div>
+    </div>
+  </div>
+
+  <label>قوة مطابقة الأسلوب</label>
+  <div class="range">
+    <input id="strength" type="range" min="0" max="1" step="0.05" value="0.7" />
+    <span id="sval">0.70</span>
+  </div>
+
+  <label>عدد النتائج</label>
+  <select id="outputs">
+    <option value="1">1</option>
+    <option value="2">2</option>
+    <option value="3">3</option>
+    <option value="4">4</option>
+  </select>
+
+  <label>Seed (لإعادة نفس النتيجة – اختياري)</label>
+  <input id="seed" type="number" placeholder="اتركه فارغًا للعشوائية" />
+
+  <label>نمط الإعلان (جاهز للعربية)</label>
+  <select id="preset">
+    <option value="stationery">قرطاسية / مكتبية</option>
+    <option value="electronics">إلكترونيات</option>
+    <option value="cosmetics">تجميل</option>
+    <option value="general">عام</option>
+  </select>
+
+  <label>النص التوجيهي (Prompt)</label>
+  <textarea id="prompt" rows="4"></textarea>
+
+  <button id="run">إنشاء الإعلان</button>
+
+  <div class="out" id="output"></div>
+
+  <div class="note">🔑 كل مستخدم يستعمل مفتاحه الخاص.</div>
+  <div class="actions">
+    <button id="editText" class="secondary" disabled>🖼️ تعديل النص على الصورة</button>
+    <span id="credits" style="opacity:.85">📊 Credits: —</span>
+  </div>
+</div>
+
+<script>
+const presets = {
+  stationery: 'أنشئ إعلانًا عربيًا احترافيًا لمنتج قرطاسية. استخدم التصميم المرجعي كأساس للتنسيق والألوان.',
+  electronics: 'أنشئ إعلانًا عربيًا عصريًا لمنتج إلكتروني. أسلوب نظيف، تباين قوي، إبراز الميزات.',
+  cosmetics: 'أنشئ إعلانًا عربيًا أنيقًا لمنتج تجميلي. ألوان ناعمة، مظهر فاخر.',
+  general: 'أنشئ إعلانًا عربيًا احترافيًا باستخدام التصميم المرجعي كنمط عام.'
+};
+
+const $ = (id)=>document.getElementById(id);
+
+function previewFile(input, el){
+  input.onchange = () => {
+    const f = input.files[0]; if (!f) return;
+    const img = document.createElement('img'); img.src = URL.createObjectURL(f);
+    el.innerHTML=''; el.appendChild(img);
+  }
+}
+previewFile($('template'), $('prevTemplate'));
+previewFile($('product'), $('prevProduct'));
+
+$('strength').oninput = ()=> $('sval').textContent = Number($('strength').value).toFixed(2);
+$('preset').onchange = ()=> $('prompt').value = presets[$('preset').value];
+$('prompt').value = presets.stationery;
+
+const historyImages = [];
+
+// LOGIN SYSTEM
+console.log('Setting up login button...');
+$('loginBtn').onclick = async ()=>{
+  console.log('Login button clicked!');
+  const u = $('username').value.trim();
+  const p = $('password').value.trim();
+  console.log('Username:', u);
+  
+  if(!u || !p){ 
+    $('loginMsg').textContent='الرجاء إدخال المستخدم وكلمة المرور'; 
+    console.log('Missing username or password');
+    return; 
+  }
+  
+  try{
+    console.log('Sending login request...');
+    const res = await fetch('/.netlify/functions/login', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username:u,password:p})
+    });
+    
+    console.log('Response status:', res.status);
+    const data = await res.json();
+    console.log('Response data:', data);
+    
+    if(data.success){
+      console.log('Login successful!');
+      $('loginCard').style.display='none';
+      $('mainCard').style.display='block';
+    }else{
+      console.log('Login failed:', data.message);
+      $('loginMsg').textContent = data.message || 'اسم المستخدم أو كلمة المرور غير صحيحة';
+    }
+  }catch(e){ 
+    console.error('Login error:', e);
+    $('loginMsg').textContent='خطأ في الاتصال: ' + e.message; 
+  }
+}
+
+// OPEN EDITOR
+function openEditor(url){
+  window.open(`editor.html?img=${encodeURIComponent(url)}`, '_blank');
+}
+
+// BASE64 HELPER
+const toBase64 = (file)=> new Promise((res,rej)=>{
+  const r=new FileReader();
+  r.onload=()=>res(r.result);
+  r.onerror=rej;
+  r.readAsDataURL(file);
+});
+
+// GENERATE BUTTON
+$('run').onclick = async ()=>{
+  if(!$('apiKey').value || !$('template').files[0] || !$('product').files[0]){
+    alert('يرجى إدخال الـ API والصور');
+    return;
+  }
+  $('run').disabled=true; $('run').textContent='جارٍ الإنشاء…';
+  $('output').innerHTML='';
+
+  const body = {
+    apiKey: $('apiKey').value.trim(),
+    prompt: $('prompt').value,
+    strength: Number($('strength').value),
+    outputs: Number($('outputs').value),
+    seed: $('seed').value? Number($('seed').value):null,
+    template: await toBase64($('template').files[0]),
+    product: await toBase64($('product').files[0])
+  };
+
+  try{
+    const res = await fetch('/.netlify/functions/generate',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if(!data.images) throw new Error('فشل التوليد');
+
+    data.images.forEach(url=>{
+      const wrapper=document.createElement('div');
+      const img=document.createElement('img'); img.src=url;
+      img.onclick=()=>openEditor(url);
+
+      const btn=document.createElement('button'); btn.textContent='⬇️ تحميل الصورة'; btn.className='secondary';
+      btn.onclick=()=>{ const a=document.createElement('a'); a.href=url; a.download='ad.png'; a.click(); };
+
+      wrapper.appendChild(img);
+      wrapper.appendChild(btn);
+      $('output').appendChild(wrapper);
+
+      historyImages.unshift(url);
+      if(historyImages.length>10) historyImages.pop();
+    });
+
+    if(data.usage) $('credits').textContent=`📊 Credits: ${data.usage.remaining}`;
+  }catch(e){ alert(e.message); }
+  finally{ $('run').disabled=false; $('run').textContent='إنشاء الإعلان'; }
+};
+</script>
+</body>
+</html>

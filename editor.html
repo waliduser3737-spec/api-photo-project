@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Text Overlay Editor</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:Cairo;background:#111;color:#fff;display:flex;flex-direction:column;align-items:center; padding:10px;}
+canvas{max-width:100%; border:2px solid #555; border-radius:8px;}
+input, select{margin:8px; padding:8px; border-radius:6px; border:none;}
+.controls{display:flex;gap:10px;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+
+<input id="text" placeholder="أدخل النص" />
+<div class="controls">
+  <label>لون النص <input type="color" id="color" value="#ffffff"></label>
+  <label>خلفية <input type="color" id="bg" value="#000000"></label>
+  <label>ظل <input type="color" id="shadow" value="#000000"></label>
+</div>
+<canvas id="c"></canvas>
+
+<script>
+const params = new URLSearchParams(location.search);
+const imgUrl = params.get('img');
+const img=new Image(); img.crossOrigin='anonymous'; img.src=imgUrl;
+const c=document.getElementById('c'); const ctx=c.getContext('2d');
+let text='أدخل النص';
+let textColor='#ffffff', bgColor='#000000', shadowColor='#000000';
+let pos={x:0.5, y:0.9};
+
+img.onload=()=>{
+  c.width=img.width; c.height=img.height;
+  draw();
+};
+
+function draw(){
+  ctx.clearRect(0,0,c.width,c.height);
+  ctx.drawImage(img,0,0);
+  ctx.fillStyle=bgColor; ctx.globalAlpha=0.4;
+  ctx.fillRect(c.width*0.1, c.height*0.85, c.width*0.8, 60);
+  ctx.globalAlpha=1;
+  ctx.shadowColor=shadowColor; ctx.shadowBlur=4;
+  ctx.fillStyle=textColor; ctx.font='48px Cairo'; ctx.textAlign='center';
+  ctx.fillText(text, c.width*pos.x, c.height*pos.y);
+}
+
+document.getElementById('text').oninput=e=>{ text=e.target.value; draw(); };
+document.getElementById('color').oninput=e=>{ textColor=e.target.value; draw(); };
+document.getElementById('bg').oninput=e=>{ bgColor=e.target.value; draw(); };
+document.getElementById('shadow').oninput=e=>{ shadowColor=e.target.value; draw(); };
+
+// DRAG TEXT
+let dragging=false;
+c.addEventListener('mousedown', e=>{ dragging=true; updatePos(e); });
+c.addEventListener('mouseup', ()=>dragging=false);
+c.addEventListener('mousemove', e=>{ if(dragging) updatePos(e); });
+function updatePos(e){
+  const rect=c.getBoundingClientRect();
+  pos.x=(e.clientX-rect.left)/c.width;
+  pos.y=(e.clientY-rect.top)/c.height;
+  draw();
+}
+</script>
+</body>
+</html>
