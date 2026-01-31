@@ -14,10 +14,9 @@ export async function handler(event, context) {
       };
     }
 
-    // Convert base64 to binary if needed
+    // Convert base64 to clean base64 (remove data URL prefix if present)
     let imageData = body.template;
     if (imageData.startsWith('data:image')) {
-      // Remove data URL prefix
       imageData = imageData.split(',')[1];
     }
 
@@ -26,6 +25,20 @@ export async function handler(event, context) {
     const API_URL = 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-refiner-1.0';
     
     console.log('Calling Hugging Face API...');
+    
+    // Build parameters object
+    const parameters = {
+      image: imageData,  // base64 image
+      strength: parseFloat(body.strength) || 0.5,
+      num_inference_steps: 30,
+      guidance_scale: 7.5,
+      negative_prompt: 'low quality, blurry, distorted, watermark, text, letters, bad anatomy'
+    };
+    
+    // Add seed if provided (for reproducibility)
+    if (body.seed && !isNaN(body.seed)) {
+      parameters.seed = body.seed;
+    }
     
     // Make request with proper payload format
     const response = await fetch(API_URL, {
@@ -36,13 +49,7 @@ export async function handler(event, context) {
       },
       body: JSON.stringify({
         inputs: body.prompt,
-        parameters: {
-          image: imageData,  // base64 image
-          strength: parseFloat(body.strength) || 0.5,
-          num_inference_steps: 30,
-          guidance_scale: 7.5,
-          negative_prompt: 'low quality, blurry, distorted, watermark'
-        },
+        parameters: parameters,
         options: {
           wait_for_model: true,
           use_cache: false
@@ -52,22 +59,31 @@ export async function handler(event, context) {
 
     console.log('Response status:', response.status);
 
-    // Handle model loading (503)
+    // Handle model loading (503) - common on free tier
     if (response.status === 503) {
-      const errorData = await response.json();
-      if (errorData.error && errorData.error.includes('loading')) {
-        return {
-          statusCode: 503,
-          body: JSON.stringify({ 
-            error: 'Model is loading. Please wait a few seconds and try again.' 
-          })
-        };
-      }
+      const errorData = await response.json().catch(() => ({}));
+      console.log('Model loading or unavailable:', errorData);
+      return {
+        statusCode: 503,
+        body: JSON.stringify({ 
+          error: 'Model is loading. Please wait 10-20 seconds and try again.' 
+        })
+      };
+    }
+    
+    // Handle rate limiting (429)
+    if (response.status === 429) {
+      return {
+        statusCode: 429,
+        body: JSON.stringify({
+          error: 'Too many requests. Please wait a moment and try again.'
+        })
+      };
     }
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('API error:', errorText);
+      console.error('API error:', response.status, errorText);
       return {
         statusCode: response.status,
         body: JSON.stringify({ error: `Hugging Face API error: ${errorText}` })
@@ -87,9 +103,13 @@ export async function handler(event, context) {
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*' // Enable CORS if needed
+      },
       body: JSON.stringify({ 
-        images: [imageUrl]  // Return as array for compatibility
+        images: [imageUrl],  // Return as array for compatibility
+        model: 'stabilityai/stable-diffusion-xl-refiner-1.0'
       })
     };
 
