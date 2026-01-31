@@ -9,44 +9,43 @@ export async function handler(event, context) {
       };
     }
 
-    // Convert base64 to buffer for binary upload
+    // Convert base64 to buffer
     let imageData = body.template;
     if (imageData.startsWith('data:image')) {
       imageData = imageData.split(',')[1];
     }
-    const imageBuffer = Buffer.from(imageData, 'base64');
 
-    // Build URL with query parameters (this is the key fix!)
-    const url = new URL('https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0');
-    url.searchParams.append('prompt', body.prompt);
-    url.searchParams.append('strength', body.strength || 0.5);
-    url.searchParams.append('guidance_scale', '7.5');
-    url.searchParams.append('num_inference_steps', '30');
-    if (body.seed) url.searchParams.append('seed', body.seed);
-    url.searchParams.append('negative_prompt', 'low quality, blurry, distorted');
-
-    const response = await fetch(url.toString(), {
+    // Use InstructPix2Pix - confirmed working for image-to-image on HF
+    const API_URL = 'https://router.huggingface.co/hf-inference/models/timbrooks/instruct-pix2pix';
+    
+    const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${body.apiKey}`,
-        'Content-Type': 'image/png',  // Send as binary image, not JSON
-        'Accept': 'image/png'
+        'Content-Type': 'application/json'
       },
-      body: imageBuffer  // Send raw binary, not base64 JSON
+      body: JSON.stringify({
+        inputs: imageData,  // Base64 image
+        parameters: {
+          prompt: body.prompt,
+          num_inference_steps: 20,
+          guidance_scale: 7.5,
+          image_guidance_scale: 1.5
+        }
+      })
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('API error:', response.status, errorText);
       return {
         statusCode: response.status,
         body: JSON.stringify({ error: `HF API error: ${errorText}` })
       };
     }
 
-    // Get generated image as blob/binary
-    const resultBuffer = await response.arrayBuffer();
-    const base64Image = Buffer.from(resultBuffer).toString('base64');
+    const imageBlob = await response.blob();
+    const arrayBuffer = await imageBlob.arrayBuffer();
+    const base64Image = Buffer.from(arrayBuffer).toString('base64');
     
     return {
       statusCode: 200,
