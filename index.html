@@ -16,7 +16,7 @@
   button { background:#5b6cff; color:#fff; font-weight:800; cursor:pointer; }
   button.secondary { background:#2b2f6a; }
   button:disabled { opacity:.6; cursor:not-allowed; }
-  .row { display:grid; grid-template-columns:1fr; gap:12px; }
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .preview img, .out img { width:100%; border-radius:16px; margin-top:10px; cursor:pointer; }
   .range { display:flex; align-items:center; gap:10px; }
   .range span { opacity:.85; min-width:48px; text-align:center; }
@@ -37,7 +37,7 @@
 
 <div class="card" id="mainCard" style="display:none;">
   <h1>مولّد إعلانات ذكي (Hugging Face)</h1>
-  <p>ارفع <b>تصميمًا مرجعيًا</b>. سيتم تحسينه وإعادة توليده باستخدام نموذج Stable Diffusion XL Refiner.</p>
+  <p>ارفع <b>تصميمًا مرجعيًا</b> + <b>صورة المنتج</b>. سيتم إنشاء إعلان باستخدام Hugging Face API مع دعم كامل للعربية.</p>
 
   <label>Hugging Face API Token</label>
   <input id="apiKey" type="password" placeholder="hf_..." />
@@ -45,13 +45,18 @@
 
   <div class="row">
     <div>
-      <label>الصورة المرجعية (التصميم الأصلي)</label>
+      <label>الصورة المرجعية (التصميم)</label>
       <input id="template" type="file" accept="image/*" />
       <div class="preview" id="prevTemplate"></div>
     </div>
+    <div>
+      <label>صورة المنتج</label>
+      <input id="product" type="file" accept="image/*" />
+      <div class="preview" id="prevProduct"></div>
+    </div>
   </div>
 
-  <label>قوة التغيير (Strength)</label>
+  <label>قوة مطابقة الأسلوب (Strength)</label>
   <div class="range">
     <input id="strength" type="range" min="0.1" max="1" step="0.05" value="0.5" />
     <span id="sval">0.50</span>
@@ -59,7 +64,7 @@
   <div class="note">القيم الأقل = تغيير طفيف | القيم الأعلى = تغيير جذري (القيمة الموصى بها: 0.5)</div>
 
   <label>Seed (لإعادة نفس النتيجة – اختياري)</label>
-  <input id="seed" type="number" placeholder="مثال: 42 (اتركه فارغًا للعشوائية)" />
+  <input id="seed" type="number" placeholder="اتركه فارغًا للعشوائية" />
 
   <label>نمط الإعلان (جاهز للعربية)</label>
   <select id="preset">
@@ -80,7 +85,7 @@
   <div class="out" id="output"></div>
 
   <div class="note" style="margin-top:20px;">
-    ⚠️ <b>ملاحظة مهمة:</b> النموذج قد يحتاج إلى 10-30 ثانية للتحميل في أول مرة استخدام (عندما يكون غير نشط). إذا ظهر خطأ "Model is loading"، أعد المحاولة بعد ثوانٍ.
+    ⚠️ <b>ملاحظة مهمة:</b> النموذج قد يحتاج إلى 10-30 ثانية للتحميل في أول مرة استخدام. إذا ظهر خطأ "Model is loading"، أعد المحاولة بعد ثوانٍ.
   </div>
   <div class="actions">
     <button id="editText" class="secondary" disabled>🖼️ تعديل النص على الصورة</button>
@@ -105,6 +110,7 @@ function previewFile(input, el){
   }
 }
 previewFile($('template'), $('prevTemplate'));
+previewFile($('product'), $('prevProduct'));
 
 $('strength').oninput = ()=> $('sval').textContent = Number($('strength').value).toFixed(2);
 $('preset').onchange = ()=> $('prompt').value = presets[$('preset').value];
@@ -113,31 +119,41 @@ $('prompt').value = presets.stationery;
 const historyImages = [];
 
 // LOGIN SYSTEM
+console.log('Setting up login button...');
 $('loginBtn').onclick = async ()=>{
+  console.log('Login button clicked!');
   const u = $('username').value.trim();
   const p = $('password').value.trim();
+  console.log('Username:', u);
   
   if(!u || !p){ 
     $('loginMsg').textContent='الرجاء إدخال المستخدم وكلمة المرور'; 
+    console.log('Missing username or password');
     return; 
   }
   
   try{
+    console.log('Sending login request...');
     const res = await fetch('/.netlify/functions/login', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({username:u,password:p})
     });
     
+    console.log('Response status:', res.status);
     const data = await res.json();
+    console.log('Response data:', data);
     
     if(data.success){
+      console.log('Login successful!');
       $('loginCard').style.display='none';
       $('mainCard').style.display='block';
     }else{
+      console.log('Login failed:', data.message);
       $('loginMsg').textContent = data.message || 'اسم المستخدم أو كلمة المرور غير صحيحة';
     }
   }catch(e){ 
+    console.error('Login error:', e);
     $('loginMsg').textContent='خطأ في الاتصال: ' + e.message; 
   }
 }
@@ -180,7 +196,8 @@ $('run').onclick = async ()=>{
     prompt: $('prompt').value,
     strength: Number($('strength').value),
     seed: $('seed').value ? Number($('seed').value) : null,
-    template: await toBase64($('template').files[0])
+    template: await toBase64($('template').files[0]),
+    product: $('product').files[0] ? await toBase64($('product').files[0]) : null
   };
 
   try{
@@ -194,7 +211,7 @@ $('run').onclick = async ()=>{
     
     // Handle specific Hugging Face errors
     if(res.status === 503 && data.error && data.error.includes('loading')) {
-      showError('النموذج يحمل حالياً. انتظر 10-20 ثانية ثم أعد المحاولة.');
+      showError('النموذج يحمل حالياً (Cold Start). انتظر 10-20 ثانية ثم أعد المحاولة.');
       throw new Error('Model loading');
     }
     
