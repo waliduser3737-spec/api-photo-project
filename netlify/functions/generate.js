@@ -20,27 +20,26 @@ export async function handler(event, context) {
       imageData = imageData.split(',')[1];
     }
 
-    // Using Hugging Face Inference API with SDXL image-to-image
-    // Model: stabilityai/stable-diffusion-xl-refiner-1.0 (free tier)
-    const API_URL = 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-refiner-1.0';
+    // NEW ENDPOINT: Using Hugging Face Router API instead of old inference API
+    const API_URL = 'https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-refiner-1.0';
     
-    console.log('Calling Hugging Face API...');
+    console.log('Calling Hugging Face Router API...');
     
     // Build parameters object
     const parameters = {
-      image: imageData,  // base64 image
+      image: imageData,
       strength: parseFloat(body.strength) || 0.5,
       num_inference_steps: 30,
       guidance_scale: 7.5,
       negative_prompt: 'low quality, blurry, distorted, watermark, text, letters, bad anatomy'
     };
     
-    // Add seed if provided (for reproducibility)
+    // Add seed if provided
     if (body.seed && !isNaN(body.seed)) {
       parameters.seed = body.seed;
     }
     
-    // Make request with proper payload format
+    // Make request
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
@@ -49,41 +48,35 @@ export async function handler(event, context) {
       },
       body: JSON.stringify({
         inputs: body.prompt,
-        parameters: parameters,
-        options: {
-          wait_for_model: true,
-          use_cache: false
-        }
+        parameters: parameters
       })
     });
 
     console.log('Response status:', response.status);
 
-    // Handle model loading (503) - common on free tier
-    if (response.status === 503) {
-      const errorData = await response.json().catch(() => ({}));
-      console.log('Model loading or unavailable:', errorData);
-      return {
-        statusCode: 503,
-        body: JSON.stringify({ 
-          error: 'Model is loading. Please wait 10-20 seconds and try again.' 
-        })
-      };
-    }
-    
-    // Handle rate limiting (429)
-    if (response.status === 429) {
-      return {
-        statusCode: 429,
-        body: JSON.stringify({
-          error: 'Too many requests. Please wait a moment and try again.'
-        })
-      };
-    }
-
     if (!response.ok) {
       const errorText = await response.text();
       console.error('API error:', response.status, errorText);
+      
+      // Handle specific errors
+      if (response.status === 503) {
+        return {
+          statusCode: 503,
+          body: JSON.stringify({ 
+            error: 'Model is loading or unavailable. Please wait 10-20 seconds and try again.' 
+          })
+        };
+      }
+      
+      if (response.status === 429) {
+        return {
+          statusCode: 429,
+          body: JSON.stringify({
+            error: 'Too many requests. Please wait a moment and try again.'
+          })
+        };
+      }
+      
       return {
         statusCode: response.status,
         body: JSON.stringify({ error: `Hugging Face API error: ${errorText}` })
@@ -105,10 +98,10 @@ export async function handler(event, context) {
       statusCode: 200,
       headers: { 
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*' // Enable CORS if needed
+        'Access-Control-Allow-Origin': '*'
       },
       body: JSON.stringify({ 
-        images: [imageUrl],  // Return as array for compatibility
+        images: [imageUrl],
         model: 'stabilityai/stable-diffusion-xl-refiner-1.0'
       })
     };
