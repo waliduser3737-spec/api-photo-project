@@ -2,106 +2,95 @@ export async function handler(event, context) {
   try {
     const body = JSON.parse(event.body);
     
-    console.log('Received generation request');
+    console.log('Received generation request (Hugging Face)');
 
     // Validate required fields
-    if (!body.apiKey || !body.prompt || !body.product || !body.template) {
+    if (!body.apiKey || !body.prompt || !body.template) {
       return {
         statusCode: 400,
         body: JSON.stringify({ 
-          error: 'Missing required fields: apiKey, prompt, product, or template' 
+          error: 'Missing required fields: apiKey, prompt, or template' 
         })
       };
     }
 
-    // Using a simpler, more reliable approach: stability-ai/sdxl with img2img
-    console.log('Calling Replicate API...');
-    const response = await fetch(
-      'https://api.replicate.com/v1/predictions',
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Token ${body.apiKey}`,
-          'Content-Type': 'application/json'
+    // Convert base64 to binary if needed
+    let imageData = body.template;
+    if (imageData.startsWith('data:image')) {
+      // Remove data URL prefix
+      imageData = imageData.split(',')[1];
+    }
+
+    // Using Hugging Face Inference API with SDXL image-to-image
+    // Model: stabilityai/stable-diffusion-xl-refiner-1.0 (free tier)
+    const API_URL = 'https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-refiner-1.0';
+    
+    console.log('Calling Hugging Face API...');
+    
+    // Make request with proper payload format
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${body.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        inputs: body.prompt,
+        parameters: {
+          image: imageData,  // base64 image
+          strength: parseFloat(body.strength) || 0.5,
+          num_inference_steps: 30,
+          guidance_scale: 7.5,
+          negative_prompt: 'low quality, blurry, distorted, watermark'
         },
-        body: JSON.stringify({
-          version: '39ed52f2a78e934b3ba6e2a89f5b1c712de7dfea535525255b1aa35c5565e08b',
-          input: {
-            prompt: body.prompt,
-            image: body.template,
-            strength: parseFloat(body.strength) || 0.5,
-            num_outputs: parseInt(body.outputs) || 1,
-            seed: body.seed ? parseInt(body.seed) : undefined,
-            negative_prompt: 'low quality, blurry, distorted, watermark',
-            num_inference_steps: 30,
-            guidance_scale: 7.5
-          }
-        })
+        options: {
+          wait_for_model: true,
+          use_cache: false
+        }
+      })
+    });
+
+    console.log('Response status:', response.status);
+
+    // Handle model loading (503)
+    if (response.status === 503) {
+      const errorData = await response.json();
+      if (errorData.error && errorData.error.includes('loading')) {
+        return {
+          statusCode: 503,
+          body: JSON.stringify({ 
+            error: 'Model is loading. Please wait a few seconds and try again.' 
+          })
+        };
       }
-    );
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
       console.error('API error:', errorText);
       return {
         statusCode: response.status,
-        body: JSON.stringify({ error: `API error: ${errorText}` })
+        body: JSON.stringify({ error: `Hugging Face API error: ${errorText}` })
       };
     }
 
-    let prediction = await response.json();
-    console.log('Prediction created:', prediction.id);
+    // Get the image as blob
+    const imageBlob = await response.blob();
+    
+    // Convert blob to base64
+    const arrayBuffer = await imageBlob.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const base64Image = buffer.toString('base64');
+    const imageUrl = `data:image/png;base64,${base64Image}`;
 
-    // Poll for completion
-    let attempts = 0;
-    const maxAttempts = 60;
-
-    while (
-      prediction.status !== 'succeeded' &&
-      prediction.status !== 'failed' &&
-      prediction.status !== 'canceled' &&
-      attempts < maxAttempts
-    ) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      const pollResponse = await fetch(
-        `https://api.replicate.com/v1/predictions/${prediction.id}`,
-        {
-          headers: { 
-            'Authorization': `Token ${body.apiKey}`
-          }
-        }
-      );
-
-      if (!pollResponse.ok) {
-        console.error('Poll error');
-        break;
-      }
-
-      prediction = await pollResponse.json();
-      attempts++;
-    }
-
-    if (prediction.status === 'failed') {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ 
-          error: prediction.error || 'Generation failed' 
-        })
-      };
-    }
-
-    if (attempts >= maxAttempts) {
-      return {
-        statusCode: 408,
-        body: JSON.stringify({ error: 'Timeout' })
-      };
-    }
+    console.log('Image generated successfully');
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ images: prediction.output })
+      body: JSON.stringify({ 
+        images: [imageUrl]  // Return as array for compatibility
+      })
     };
 
   } catch (error) {
