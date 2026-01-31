@@ -9,50 +9,90 @@ export async function handler(event, context) {
       };
     }
 
+    // Clean base64
     let imageData = body.template;
     if (imageData.startsWith('data:image')) {
       imageData = imageData.split(',')[1];
     }
 
-    // This model works on HF free tier for image-to-image
-    const API_URL = 'https://router.huggingface.co/hf-inference/models/runwayml/stable-diffusion-v1-5';
-    
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${body.apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        inputs: imageData,
-        parameters: {
-          prompt: body.prompt,
-          strength: parseFloat(body.strength) || 0.5,
-          num_inference_steps: 25,
-          guidance_scale: 7.5,
-          seed: body.seed || undefined
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('API error:', response.status, errorText);
-      return {
-        statusCode: response.status,
-        body: JSON.stringify({ error: `HF API error: ${errorText}` })
-      };
+    // Also process product image if provided
+    let productData = body.product || null;
+    if (productData && productData.startsWith('data:image')) {
+      productData = productData.split(',')[1];
     }
 
-    const imageBlob = await response.blob();
-    const arrayBuffer = await imageBlob.arrayBuffer();
-    const base64Image = Buffer.from(arrayBuffer).toString('base64');
+    // Build content parts (text + images)
+    const parts = [];
     
+    // Add instruction text
+    parts.push({
+      text: body.prompt + ". Generate a professional advertisement image based on the reference style."
+    });
+    
+    // Add template image as reference
+    parts.push({
+      inlineData: {
+        mimeType: "image/png",
+        data: imageData
+      }
+    });
+    
+    // Add product image if available
+    if (productData) {
+      parts.push({
+        inlineData: {
+          mimeType: "image/png", 
+          data: productData
+        }
+      });
+    }
+
+    // Call Gemini API
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${body.apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: parts }],
+          generationConfig: {
+            responseModalities: ["Text", "Image"],
+            temperature: 0.7,
+            seed: body.seed || undefined
+          }
+        })
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error?.message || 'Gemini API error');
+    }
+
+    const data = await response.json();
+    
+    // Extract generated image from response
+    let imageUrl = null;
+    
+    if (data.candidates && data.candidates[0]?.content?.parts) {
+      for (const part of data.candidates[0].content.parts) {
+        if (part.inlineData?.data) {
+          imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+          break;
+        }
+      }
+    }
+
+    if (!imageUrl) {
+      throw new Error('No image generated - check if image generation is enabled in your API key');
+    }
+
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        images: [`data:image/png;base64,${base64Image}`]
+        images: [imageUrl],
+        source: 'gemini-2.0-flash'
       })
     };
 
