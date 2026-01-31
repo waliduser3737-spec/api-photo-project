@@ -9,14 +9,13 @@ export async function handler(event, context) {
       };
     }
 
-    // Convert base64 to buffer
     let imageData = body.template;
     if (imageData.startsWith('data:image')) {
       imageData = imageData.split(',')[1];
     }
 
-    // Use InstructPix2Pix - confirmed working for image-to-image on HF
-    const API_URL = 'https://router.huggingface.co/hf-inference/models/timbrooks/instruct-pix2pix';
+    // This model works on HF free tier for image-to-image
+    const API_URL = 'https://router.huggingface.co/hf-inference/models/runwayml/stable-diffusion-v1-5';
     
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -25,18 +24,20 @@ export async function handler(event, context) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        inputs: imageData,  // Base64 image
+        inputs: imageData,
         parameters: {
           prompt: body.prompt,
-          num_inference_steps: 20,
+          strength: parseFloat(body.strength) || 0.5,
+          num_inference_steps: 25,
           guidance_scale: 7.5,
-          image_guidance_scale: 1.5
+          seed: body.seed || undefined
         }
       })
     });
 
     if (!response.ok) {
       const errorText = await response.text();
+      console.error('API error:', response.status, errorText);
       return {
         statusCode: response.status,
         body: JSON.stringify({ error: `HF API error: ${errorText}` })
