@@ -13,31 +13,20 @@ export async function handler(event, context) {
       };
     }
 
+    // Clean base64 (remove data URL prefix)
     let imageData = body.template;
     if (imageData.startsWith('data:image')) {
       imageData = imageData.split(',')[1];
     }
 
-    // UPDATED: Using base SDXL model which is available on the router
-    // Alternative models if this doesn't work: 
-    // - "stabilityai/stable-diffusion-2-1" 
-    // - "runwayml/stable-diffusion-v1-5"
+    // CORRECT ENDPOINT for HF Inference
     const API_URL = 'https://router.huggingface.co/hf-inference/models/stabilityai/stable-diffusion-xl-base-1.0';
     
-    console.log('Calling Hugging Face Router API...');
+    console.log('Calling Hugging Face Inference API...');
     
-    const parameters = {
-      image: imageData,
-      strength: parseFloat(body.strength) || 0.5,
-      num_inference_steps: 30,
-      guidance_scale: 7.5,
-      negative_prompt: 'low quality, blurry, distorted, watermark, text, letters, bad anatomy'
-    };
-    
-    if (body.seed && !isNaN(body.seed)) {
-      parameters.seed = body.seed;
-    }
-    
+    // CORRECT PAYLOAD FORMAT for image-to-image:
+    // - inputs: the image (base64)
+    // - parameters.prompt: the text prompt
     const response = await fetch(API_URL, {
       method: 'POST',
       headers: {
@@ -45,8 +34,15 @@ export async function handler(event, context) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        inputs: body.prompt,
-        parameters: parameters
+        inputs: imageData,  // Image goes here as base64
+        parameters: {
+          prompt: body.prompt,  // Prompt goes in parameters
+          strength: parseFloat(body.strength) || 0.5,
+          num_inference_steps: 30,
+          guidance_scale: 7.5,
+          seed: body.seed || undefined,
+          negative_prompt: 'low quality, blurry, distorted, watermark, text, letters, bad anatomy'
+        }
       })
     });
 
@@ -56,20 +52,11 @@ export async function handler(event, context) {
       const errorText = await response.text();
       console.error('API error:', response.status, errorText);
       
-      if (response.status === 404) {
-        return {
-          statusCode: 404,
-          body: JSON.stringify({ 
-            error: 'Model not found. Try a different model like stabilityai/stable-diffusion-2-1 or check your Hugging Face token access.' 
-          })
-        };
-      }
-      
       if (response.status === 503) {
         return {
           statusCode: 503,
           body: JSON.stringify({ 
-            error: 'Model is loading or unavailable. Please wait 10-20 seconds and try again.' 
+            error: 'Model is loading (cold start). Please wait 10-20 seconds and try again.' 
           })
         };
       }
@@ -80,6 +67,7 @@ export async function handler(event, context) {
       };
     }
 
+    // Get the generated image
     const imageBlob = await response.blob();
     const arrayBuffer = await imageBlob.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
