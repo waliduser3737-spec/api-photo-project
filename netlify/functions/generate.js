@@ -9,95 +9,53 @@ export async function handler(event, context) {
       };
     }
 
-    // Clean base64
     let imageData = body.template;
     if (imageData.startsWith('data:image')) {
       imageData = imageData.split(',')[1];
     }
 
-    // Also process product image if provided
-    let productData = body.product || null;
-    if (productData && productData.startsWith('data:image')) {
-      productData = productData.split(',')[1];
-    }
-
-    // Build content parts (text + images)
-    const parts = [];
-    
-    // Add instruction text
-    parts.push({
-      text: body.prompt + ". Generate a professional advertisement image based on the reference style."
-    });
-    
-    // Add template image as reference
-    parts.push({
-      inlineData: {
-        mimeType: "image/png",
-        data: imageData
-      }
-    });
-    
-    // Add product image if available
-    if (productData) {
-      parts.push({
-        inlineData: {
-          mimeType: "image/png", 
-          data: productData
-        }
-      });
-    }
-
-    // Call Gemini API
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp-image-generation:generateContent?key=${body.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: parts }],
-          generationConfig: {
-            responseModalities: ["Text", "Image"],
-            temperature: 0.7,
-            seed: body.seed || undefined
+    // Leonardo.ai Universal Upscaler/Img2Img (Alchemy model)
+    const response = await fetch('https://cloud.leonardo.ai/api/rest/v1/generations', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${body.apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        prompt: body.prompt,
+        modelId: "b24e16ff-06e3-416e-8b91-9b3166bbb163", // Leonardo Diffusion XL
+        width: 1024,
+        height: 1024,
+        alchemy: true,
+        photoReal: false,
+        controlnets: [
+          {
+            initImageId: imageData, // base64 or you need to upload first
+            initImageType: "BASE64",
+            preprocessorId: "none",
+            weight: 1.0 - (parseFloat(body.strength) || 0.5) // Inverted strength
           }
-        })
-      }
-    );
+        ],
+        seed: body.seed || undefined
+      })
+    });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error?.message || 'Gemini API error');
+      const error = await response.text();
+      throw new Error(`Leonardo error: ${error}`);
     }
 
-    const data = await response.json();
-    
-    // Extract generated image from response
-    let imageUrl = null;
-    
-    if (data.candidates && data.candidates[0]?.content?.parts) {
-      for (const part of data.candidates[0].content.parts) {
-        if (part.inlineData?.data) {
-          imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-          break;
-        }
-      }
-    }
+    const result = await response.json();
+    const imageUrl = result.generationsByPk?.generatedImages?.[0]?.url;
 
-    if (!imageUrl) {
-      throw new Error('No image generated - check if image generation is enabled in your API key');
-    }
+    if (!imageUrl) throw new Error('No image generated');
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ 
-        images: [imageUrl],
-        source: 'gemini-2.0-flash'
-      })
+      body: JSON.stringify({ images: [imageUrl] })
     };
 
   } catch (error) {
-    console.error('Error:', error);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error.message })
