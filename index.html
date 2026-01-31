@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>AI Ad Generator — Hugging Face (Arabic)</title>
+<title>AI Ad Generator — Google AI Studio (Arabic)</title>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
   body { font-family:'Cairo', system-ui; background:#0f1220; color:#fff; padding:20px; }
@@ -36,12 +36,12 @@
 </div>
 
 <div class="card" id="mainCard" style="display:none;">
-  <h1>مولّد إعلانات ذكي (Hugging Face)</h1>
-  <p>ارفع <b>تصميمًا مرجعيًا</b> + <b>صورة المنتج</b>. سيتم إنشاء إعلان باستخدام Hugging Face API مع دعم كامل للعربية.</p>
+  <h1>مولّد إعلانات ذكي (Google AI Studio)</h1>
+  <p>ارفع <b>تصميمًا مرجعيًا</b> + <b>صورة المنتج</b>. سيتم إنشاء إعلان باستخدام Gemini API مع دعم كامل للعربية.</p>
 
-  <label>Hugging Face API Token</label>
-  <input id="apiKey" type="password" placeholder="hf_..." />
-  <div class="note">🔑 احصل على مفتاح من <a href="https://huggingface.co/settings/tokens" target="_blank" style="color:#5b6cff;">huggingface.co/settings/tokens</a> (مجاني)</div>
+  <label>Google AI Studio API Key</label>
+  <input id="apiKey" type="password" placeholder="AIza..." />
+  <div class="note">🔑 احصل على مفتاح من <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:#5b6cff;">aistudio.google.com/app/apikey</a> (مجاني - 1800 طلب/يوم)</div>
 
   <div class="row">
     <div>
@@ -55,13 +55,6 @@
       <div class="preview" id="prevProduct"></div>
     </div>
   </div>
-
-  <label>قوة مطابقة الأسلوب (Strength)</label>
-  <div class="range">
-    <input id="strength" type="range" min="0.1" max="1" step="0.05" value="0.5" />
-    <span id="sval">0.50</span>
-  </div>
-  <div class="note">القيم الأقل = تغيير طفيف | القيم الأعلى = تغيير جذري (القيمة الموصى بها: 0.5)</div>
 
   <label>Seed (لإعادة نفس النتيجة – اختياري)</label>
   <input id="seed" type="number" placeholder="اتركه فارغًا للعشوائية" />
@@ -85,7 +78,7 @@
   <div class="out" id="output"></div>
 
   <div class="note" style="margin-top:20px;">
-    ⚠️ <b>ملاحظة مهمة:</b> النموذج قد يحتاج إلى 10-30 ثانية للتحميل في أول مرة استخدام. إذا ظهر خطأ "Model is loading"، أعد المحاولة بعد ثوانٍ.
+    ⚠️ <b>ملاحظة:</b> Gemini API يحلل الصور المرجعية وينشئ تصميماً جديداً. النتيجة قد تختلف عن الأسلوب الأصلي قليلاً.
   </div>
   <div class="actions">
     <button id="editText" class="secondary" disabled>🖼️ تعديل النص على الصورة</button>
@@ -94,10 +87,10 @@
 
 <script>
 const presets = {
-  stationery: 'Professional Arabic stationery advertisement, clean design, high quality, product photography style, modern layout, text space available',
-  electronics: 'Modern Arabic electronics advertisement, sleek design, high tech, professional lighting, clean background, premium feel',
-  cosmetics: 'Elegant Arabic cosmetics advertisement, soft lighting, luxury style, beautiful composition, high end product photography',
-  general: 'Professional Arabic advertisement, high quality, clean composition, suitable for marketing, modern design'
+  stationery: 'أنشئ إعلانًا عربيًا احترافيًا لمنتج قرطاسية. استخدم التصميم المرجعي كأساس للتنسيق والألوان.',
+  electronics: 'أنشئ إعلانًا عربيًا عصريًا لمنتج إلكتروني. أسلوب نظيف، تباين قوي، إبراز الميزات.',
+  cosmetics: 'أنشئ إعلانًا عربيًا أنيقًا لمنتج تجميلي. ألوان ناعمة، مظهر فاخر.',
+  general: 'أنشئ إعلانًا عربيًا احترافيًا باستخدام التصميم المرجعي كنمط عام.'
 };
 
 const $ = (id)=>document.getElementById(id);
@@ -112,7 +105,6 @@ function previewFile(input, el){
 previewFile($('template'), $('prevTemplate'));
 previewFile($('product'), $('prevProduct'));
 
-$('strength').oninput = ()=> $('sval').textContent = Number($('strength').value).toFixed(2);
 $('preset').onchange = ()=> $('prompt').value = presets[$('preset').value];
 $('prompt').value = presets.stationery;
 
@@ -182,19 +174,18 @@ function showError(msg) {
 // GENERATE BUTTON
 $('run').onclick = async ()=>{
   if(!$('apiKey').value || !$('template').files[0]){
-    alert('يرجى إدخال الـ API Token واختيار الصورة المرجعية');
+    alert('يرجى إدخال الـ API Key واختيار الصورة المرجعية');
     return;
   }
   
   $('run').disabled=true; 
-  $('run').textContent='جارٍ الإنشاء… (قد يستغرق 30 ثانية في أول استخدام)';
+  $('run').textContent='جارٍ الإنشاء…';
   $('output').innerHTML='';
   $('errorBox').style.display = 'none';
 
   const body = {
     apiKey: $('apiKey').value.trim(),
     prompt: $('prompt').value,
-    strength: Number($('strength').value),
     seed: $('seed').value ? Number($('seed').value) : null,
     template: await toBase64($('template').files[0]),
     product: $('product').files[0] ? await toBase64($('product').files[0]) : null
@@ -208,12 +199,6 @@ $('run').onclick = async ()=>{
     });
     
     const data = await res.json();
-    
-    // Handle specific Hugging Face errors
-    if(res.status === 503 && data.error && data.error.includes('loading')) {
-      showError('النموذج يحمل حالياً (Cold Start). انتظر 10-20 ثانية ثم أعد المحاولة.');
-      throw new Error('Model loading');
-    }
     
     if(!res.ok) {
       throw new Error(data.error || `HTTP ${res.status}`);
@@ -253,16 +238,11 @@ $('run').onclick = async ()=>{
       wrapper.appendChild(btnContainer);
       
       $('output').appendChild(wrapper);
-
-      historyImages.unshift(url);
-      if(historyImages.length>10) historyImages.pop();
     });
 
   }catch(e){ 
     console.error(e);
-    if(!e.message.includes('Model loading')) {
-      showError('خطأ: ' + e.message); 
-    }
+    showError('خطأ: ' + e.message); 
   }
   finally{ 
     $('run').disabled=false; 
